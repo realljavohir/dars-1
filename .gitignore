@@ -1,15 +1,8 @@
-# Maxfiy ma'lumotlar fayli (Tokenlar)
 .env
-
-# SQLite ma'lumotlar bazasi fayli (Railway o'zi yangisini yaratadi)
 *.db
 foydalanuvchilar.db
-
-# Python kesh fayllari
 __pycache__/
 *.pyc
-
-# Virtual muhit papkalari (agar kompyuterda venv ochgan bo'lsangiz)
 venv/
 .venv/
 env/
