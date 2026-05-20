@@ -4,18 +4,15 @@ import sqlite3
 import bcrypt
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, ForceReply
-from dotenv import load_dotenv  # Yangi qo'shildi
+from dotenv import load_dotenv
 
-# .env faylini yuklash (agar u mavjud bo'lsa)
+# .env faylini yuklash
 load_dotenv()
 
-# Endi os.getenv ham .env fayldan, ham Railway sozlamalaridan o'qiy oladi
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 bot = telebot.TeleBot(BOT_TOKEN)
 
-# ... qolgan kodlar o'zgarishsiz qoladi ...
 # O'yinlar sessiyasini xotirada saqlash
-# {chat_id: {"p1": id, "p2": id, "p1_name": str, "p2_name": str, "p1_choice": str, "p2_choice": str, "status": str}}
 o_yinlar = {}
 
 variantlar = {
@@ -57,7 +54,6 @@ def login_bandmi(login):
     return user is not None
 
 def ruyxatdan_utkazish(telegram_id, login, parol):
-    # Parolni xavfsiz hashlash
     hashed = bcrypt.hashpw(parol.encode('utf-8'), bcrypt.gensalt())
     conn = sqlite3.connect("foydalanuvchilar.db")
     cursor = conn.cursor()
@@ -76,21 +72,9 @@ def login_tekshirish(telegram_id, login, parol):
     cursor.execute("SELECT password FROM users WHERE telegram_id = ? AND login = ?", (telegram_id, login))
     user = cursor.fetchone()
     conn.close()
-    
     if user:
-        # Kiritilgan parol bazadagi hashga to'g'ri kelishini tekshirish
-        return bcrypt.checkpw(parol.encode('utf-8'), user[0])
+        return bcrypt.checkpw(parol.encode('utf-8'), user)
     return False
-
-# --- TUGMALAR ---
-def o_yin_tugmalari():
-    markup = InlineKeyboardMarkup()
-    markup.row(
-        InlineKeyboardButton("✊ Tosh", callback_data="tosh"),
-        InlineKeyboardButton("✌️ Qaychi", callback_data="qaychi"),
-        InlineKeyboardButton("✋ Qog'oz", callback_data="qogoz")
-    )
-    return markup
 
 # --- BUYRUQLAR ---
 @bot.message_handler(commands=['start', 'help'])
@@ -99,19 +83,17 @@ def start_message(message):
     if not foydalanuvchi_mavjud(message.from_user.id):
         text += "O'ynash uchun avval ro'yxatdan o'ting: /register"
     else:
-        text += "Siz ro'yxatdan o'tgansiz. Guruhda o'yin boshlash uchun: /play"
+        text += "Siz ro'yxatdan o'tgansiz.\n- Guruhda o'ynash uchun: /play\n- Kontaktlar bilan o'ynash uchun chatda bot nomini yozing!"
     bot.send_message(message.chat.id, text)
 
 @bot.message_handler(commands=['register'])
 def register_start(message):
     if message.chat.type != "private":
-        bot.send_message(message.chat.id, "❌ Havfsizlik yuzasidan faqat botning o'zida (/start qismida) ro'yxatdan o'tishingiz mumkin!")
+        bot.send_message(message.chat.id, "❌ Havfsizlik yuzasidan faqat botning o'zida ro'yxatdan o'tishingiz mumkin!")
         return
-        
     if foydalanuvchi_mavjud(message.from_user.id):
         bot.send_message(message.chat.id, "✅ Siz allaqachon ro'yxatdan o'tgansiz!")
         return
-
     msg = bot.send_message(message.chat.id, "🔑 Yangi login kiriting:", reply_markup=ForceReply(selective=True))
     bot.register_next_step_handler(msg, register_login)
 
@@ -121,7 +103,6 @@ def register_login(message):
         msg = bot.send_message(message.chat.id, "❌ Bu login band. Boshqa login kiriting:", reply_markup=ForceReply(selective=True))
         bot.register_next_step_handler(msg, register_login)
         return
-        
     msg = bot.send_message(message.chat.id, f"Ajoyib! Endi '{login}' logini uchun parol kiriting:", reply_markup=ForceReply(selective=True))
     bot.register_next_step_handler(msg, register_password, login)
 
@@ -131,52 +112,44 @@ def register_password(message, login):
         msg = bot.send_message(message.chat.id, "❌ Parol juda qisqa (kamida 4 ta belgi). Qayta kiriting:", reply_markup=ForceReply(selective=True))
         bot.register_next_step_handler(msg, register_password, login)
         return
-
     if ruyxatdan_utkazish(message.from_user.id, login, parol):
-        bot.send_message(message.chat.id, "🎉 Muvaffaqiyatli ro'yxatdan o'tdingiz! Endi guruhlarda o'ynashingiz mumkin.")
+        bot.send_message(message.chat.id, "🎉 Muvaffaqiyatli ro'yxatdan o'tdingiz! Endi o'yinlarda qatnashishingiz mumkin.")
     else:
         bot.send_message(message.chat.id, "❌ Xatolik yuz berdi. Qaytadan urinib ko'ring: /register")
 
+# --- GURUH REJIMI MANTIG'I ---
 @bot.message_handler(commands=['play'])
 def play_game(message):
     if message.chat.type == "private":
-        bot.send_message(message.chat.id, "❌ O'yinni faqat guruhlarda o'ynash mumkin!")
+        bot.send_message(message.chat.id, "❌ O'yinni faqat guruhlarda o'ynash mumkin! Kontaktlar bilan o'ynash uchun esa inline rejimidan foydalaning.")
         return
-
     chat_id = message.chat.id
     o_yinlar[chat_id] = {
         "p1": None, "p2": None, "p1_name": "", "p2_name": "",
         "p1_choice": None, "p2_choice": None, "status": "kutish"
     }
-    
     markup = InlineKeyboardMarkup()
     markup.add(InlineKeyboardButton("🔐 LogIn va Qo'shilish", callback_data="login_and_join"))
-    
     bot.send_message(
         chat_id,
-        "⚔️ **Yangi o'yin boshlandi!**\n\nO'yinda qatnashish uchun 2 kishi shaxsiy xabarda ro'yxatdan o'tgan login va parolini kiritishi kerak.",
-        parse_mode="Markdown",
-        reply_markup=markup
+        "⚔️ **Guruhda yangi o'yin boshlandi!**\n\nO'yinda qatnashish uchun 2 kishi shaxsiy xabarda ro'yxatdan o'tgan login va parolini kiritishi kerak.",
+        parse_mode="Markdown", reply_markup=markup
     )
 
 @bot.callback_query_handler(func=lambda call: call.data == "login_and_join")
 def login_and_join_callback(call):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
-    
     if chat_id not in o_yinlar or o_yinlar[chat_id]["status"] != "kutish":
         bot.answer_callback_query(call.id, "❌ O'yin topilmadi yoki boshlanib ketgan.")
         return
-        
     if not foydalanuvchi_mavjud(user_id):
         bot.answer_callback_query(call.id, "❌ Siz hali ro'yxatdan o'tmagansiz! Botga kirib /register buyrug'ini bosing.", show_alert=True)
         return
-
-    # Guruhda parollar ko'rinmasligi uchun bot foydalanuvchiga shaxsiy xabar yuboradi
     try:
         msg = bot.send_message(user_id, f"🎮 Guruhdagi o'yinga qo'shilish uchun loginingizni kiriting:\n(Guruh ID: `{chat_id}`)", parse_mode="Markdown", reply_markup=ForceReply(selective=True))
         bot.register_next_step_handler(msg, auth_login, chat_id, call.message.message_id)
-        bot.answer_callback_query(call.id, "📩 Loginingizni kiritish uchun bot sizga shaxsiy xabar yubordi.", show_alert=True)
+        bot.answer_callback_query(call.id, "📩 Loginingizni kiritish uchun bot sizga shaxsiy xabar yuborishni boshladi.", show_alert=True)
     except Exception:
         bot.answer_callback_query(call.id, "❌ Bot sizga xabar yubora olmadi. Avval botga kirib /start bosing!", show_alert=True)
 
@@ -189,25 +162,16 @@ def auth_password(message, guruh_id, xabar_id, login):
     parol = message.text.strip()
     user_id = message.from_user.id
     user_name = message.from_user.first_name
-    
     if login_tekshirish(user_id, login, parol):
         bot.send_message(user_id, "✅ Identifikatsiya muvaffaqiyatli! Guruhga qaytib o'yinni davom ettiring.")
-        
-        # Guruhdagi o'yin holatini yangilash
-        if guruh_id not in o_yinlar:
-            bot.send_message(user_id, "❌ Afsuski, guruhdagi o'yin bekor qilingan.")
-            return
-            
+        if guruh_id not in o_yinlar: return
         game = o_yinlar[guruh_id]
-        
         if game["p1"] == user_id or game["p2"] == user_id:
-            bot.send_message(user_id, "⚠️ Siz allaqachon o'yinga qo'shilgansiz!")
+            bot.send_message(user_id, "⚠️ Siz allaqachon qo'shilgansiz!")
             return
-
         if game["p1"] is None:
             game["p1"] = user_id
             game["p1_name"] = user_name
-            
             markup = InlineKeyboardMarkup()
             markup.add(InlineKeyboardButton("🔐 LogIn va Qo'shilish", callback_data="login_and_join"))
             bot.edit_message_text(
@@ -218,71 +182,161 @@ def auth_password(message, guruh_id, xabar_id, login):
             game["p2"] = user_id
             game["p2_name"] = user_name
             game["status"] = "jarayon"
-            
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("✊ Tosh", callback_data="gtosh"), InlineKeyboardButton("✌️ Qaychi", callback_data="gqaychi"), InlineKeyboardButton("✋ Qog'oz", callback_data="gqogoz"))
             bot.edit_message_text(
                 f"🎮 **O'yin boshlandi!**\n\nIkkala o'yinchi ham tizimga kirdi:\n👤 {game['p1_name']}\n👤 {game['p2_name']}\n\nVariantingizni tanlang:",
-                chat_id=guruh_id, message_id=xabar_id, parse_mode="Markdown", reply_markup=o_yin_tugmalari()
+                chat_id=guruh_id, message_id=xabar_id, parse_mode="Markdown", reply_markup=markup
             )
     else:
         bot.send_message(user_id, "❌ Login yoki parol noto'g'ri! Guruhdagi tugmani bosib qaytadan urining.")
 
-# --- O'YIN MANTIG'I ---
-@bot.callback_query_handler(func=lambda call: call.data in variantlar.keys())
-def game_logic(call):
+@bot.callback_query_handler(func=lambda call: call.data in ["gtosh", "gqaychi", "gqogoz"])
+def guruh_game_logic(call):
     chat_id = call.message.chat.id
     user_id = call.from_user.id
-    choice = call.data
-    
-    if chat_id not in o_yinlar or o_yinlar[chat_id]["status"] != "jarayon":
-        bot.answer_callback_query(call.id, "❌ O'yin faol emas.")
-        return
-        
+    choice = call.data[1:]
+    if chat_id not in o_yinlar or o_yinlar[chat_id]["status"] != "jarayon": return
     game = o_yinlar[chat_id]
-    
     if user_id != game["p1"] and user_id != game["p2"]:
         bot.answer_callback_query(call.id, "⚠️ Siz bu o'yinda ishtirok etmayapsiz!")
         return
-        
     if user_id == game["p1"]:
-        if game["p1_choice"] is not None:
-            bot.answer_callback_query(call.id, "Siz tanlab bo'lgansiz!")
-            return
+        if game["p1_choice"]: return
         game["p1_choice"] = choice
-        bot.answer_callback_query(call.id, f"Siz {variantlar[choice]} tanladingiz!")
     elif user_id == game["p2"]:
-        if game["p2_choice"] is not None:
-            bot.answer_callback_query(call.id, "Siz tanlab bo'lgansiz!")
-            return
+        if game["p2_choice"]: return
         game["p2_choice"] = choice
-        bot.answer_callback_query(call.id, f"Siz {variantlar[choice]} tanladingiz!")
-
-    status_text = f"🎮 **O'yin davom etmoqda...**\n\n"
-    status_text += f"👤 {game['p1_name']}: {'✅ Tanladi' if game['p1_choice'] else '⏳ Kutilmoqda'}\n"
-    status_text += f"👤 {game['p2_name']}: {'✅ Tanladi' if game['p2_choice'] else '⏳ Kutilmoqda'}"
+    bot.answer_callback_query(call.id, f"Siz {variantlar[choice]} tanladingiz!")
+    
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("✊ Tosh", callback_data="gtosh"), InlineKeyboardButton("✌️ Qaychi", callback_data="gqaychi"), InlineKeyboardButton("✋ Qog'oz", callback_data="gqogoz"))
     
     if game["p1_choice"] and game["p2_choice"]:
         game["status"] = "tugadi"
-        p1_c = game["p1_choice"]
-        p2_c = game["p2_choice"]
-        
-        natija = f"🏁 **O'YIN YAKUNLANDI!**\n\n"
-        natija += f"👤 {game['p1_name']}: {variantlar[p1_c]}\n"
-        natija += f"👤 {game['p2_name']}: {variantlar[p2_c]}\n\n"
-        
-        if p1_c == p2_c:
-            natija += "🤝 **Durang!**"
-        elif (p1_c == "tosh" and p2_c == "qaychi") or \
-             (p1_c == "qaychi" and p2_c == "qogoz") or \
-             (p1_c == "qogoz" and p2_c == "tosh"):
+        p1_c, p2_c = game["p1_choice"], game["p2_choice"]
+        natija = f"🏁 **O'YIN YAKUNLANDI!**\n\n👤 {game['p1_name']}: {variantlar[p1_c]}\n👤 {game['p2_name']}: {variantlar[p2_c]}\n\n"
+        if p1_c == p2_c: natija += "🤝 **Durang!**"
+        elif (p1_c == "tosh" and p2_c == "qaychi") or (p1_c == "qaychi" and p2_c == "qogoz") or (p1_c == "qogoz" and p2_c == "tosh"):
             natija += f"🏆 **G'olib:** {game['p1_name']} 🎉"
         else:
             natija += f"🏆 **G'olib:** {game['p2_name']} 🎉"
-            
         bot.edit_message_text(natija, chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown")
         del o_yinlar[chat_id]
     else:
-        bot.edit_message_text(status_text, chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown", reply_markup=o_yin_tugmalari())
+        txt = f"🎮 **O'yin davom etmoqda...**\n\n👤 {game['p1_name']}: {'✅ Tanladi' if game['p1_choice'] else '⏳ Kutilmoqda'}\n👤 {game['p2_name']}: {'✅ Tanladi' if game['p2_choice'] else '⏳ Kutilmoqda'}"
+        bot.edit_message_text(txt, chat_id=chat_id, message_id=call.message.message_id, parse_mode="Markdown", reply_markup=markup)
+
+
+# --- INLINE REJIM MANTIG'I (KONTAKTLAR UCHUN) ---
+@bot.inline_handler(func=lambda query: True)
+def query_text(inline_query):
+    try:
+        user_id = inline_query.from_user.id
+        if not foydalanuvchi_mavjud(user_id):
+            r = telebot.types.InlineQueryResultArticle(
+                id='1', title="❌ Avval ro'yxatdan o'ting!", description="O'yin boshlash uchun botga kirib /register buyrug'ini bosing.",
+                input_message_content=telebot.types.InputTextMessageContent(text="🤖 Men hali botdan ro'yxatdan o'tmabman. Avval bot ichida /register bosishim kerak.")
+            )
+            bot.answer_inline_query(inline_query.id, [r], cache_time=1)
+            return
+        markup = InlineKeyboardMarkup()
+        markup.add(InlineKeyboardButton("🔐 LogIn va Qo'shilish", callback_data="login_and_join_inline"))
+        r = telebot.types.InlineQueryResultArticle(
+            id='2', title="⚔️ Tosh, Qaychi, Qog'oz (Ikki kishilik)", description="Ushbu xabarni do'stingizga yuborib o'yinni boshlang!",
+            input_message_content=telebot.types.InputTextMessageContent(text="⚔️ **Tosh, Qaychi, Qog'oz o'yini boshlandi!**\n\nO'yinda qatnashish uchun 2 kishi shaxsiy xabarda ro'yxatdan o'tgan login va parolini kiritishi kerak."),
+            reply_markup=markup
+        )
+        bot.answer_inline_query(inline_query.id, [r], cache_time=1)
+    except Exception as e: print(f"Inline xatolik: {e}")
+
+@bot.callback_query_handler(func=lambda call: call.data == "login_and_join_inline")
+def inline_join_callback(call):
+    inline_id = call.inline_message_id
+    user_id = call.from_user.id
+    if not inline_id: return
+    if not foydalanuvchi_mavjud(user_id):
+        bot.answer_callback_query(call.id, "❌ Siz hali ro'yxatdan o'tmagansiz! Botga kirib /register buyrug'ini bosing.", show_alert=True)
+        return
+    if inline_id not in o_yinlar:
+        o_yinlar[inline_id] = {
+            "p1": None, "p2": None, "p1_name": "", "p2_name": "",
+            "p1_choice": None, "p2_choice": None, "status": "kutish"
+        }
+    try:
+        msg = bot.send_message(user_id, f"🎮 Kontaktdagi o'yinga qo'shilish uchun loginingizni kiriting:\n(O'yin ID: `{inline_id}`)", parse_mode="Markdown", reply_markup=ForceReply(selective=True))
+        bot.register_next_step_handler(msg, auth_login_inline, inline_id)
+        bot.answer_callback_query(call.id, "📩 Bot sizga shaxsiy xabar yubordi. Lichkaga o'tib login kiriting.", show_alert=True)
+    except Exception:
+        bot.answer_callback_query(call.id, "❌ Bot sizga xabar yubora olmadi. Avval botga kirib /start bosing!", show_alert=True)
+
+def auth_login_inline(message, inline_id):
+    login = message.text.strip()
+    msg = bot.send_message(message.chat.id, "Endi parolingizni kiriting:", reply_markup=ForceReply(selective=True))
+    bot.register_next_step_handler(msg, auth_password_inline, inline_id, login)
+
+def auth_password_inline(message, inline_id, login):
+    parol = message.text.strip()
+    user_id, user_name = message.from_user.id, message.from_user.first_name
+    if login_tekshirish(user_id, login, parol):
+        bot.send_message(user_id, "✅ Identifikatsiya muvaffaqiyatli! Do'stingiz chatiga qaytib o'yinni davom ettiring.")
+        if inline_id not in o_yinlar: return
+        game = o_yinlar[inline_id]
+        if game["p1"] == user_id or game["p2"] == user_id:
+            bot.send_message(user_id, "⚠️ Siz allaqachon qo'shilgansiz!")
+            return
+        if game["p1"] is None:
+            game["p1"] = user_id
+            game["p1_name"] = user_name
+            markup = InlineKeyboardMarkup()
+            markup.add(InlineKeyboardButton("🔐 LogIn va Qo'shilish", callback_data="login_and_join_inline"))
+            bot.edit_message_text(f"⚔️ **O'yin kutish rejimida**\n\n1️⃣ O'yinchi: {user_name} (Tizimga kirdi)\n2️⃣ O'yinchi: ... kutilmoqda", inline_message_id=inline_id, parse_mode="Markdown", reply_markup=markup)
+        elif game["p2"] is None:
+            game["p2"] = user_id
+            game["p2_name"] = user_name
+            game["status"] = "jarayon"
+            markup = InlineKeyboardMarkup()
+            markup.row(InlineKeyboardButton("✊ Tosh", callback_data="itosh"), InlineKeyboardButton("✌️ Qaychi", callback_data="iqaychi"), InlineKeyboardButton("✋ Qog'oz", callback_data="iqogoz"))
+            bot.edit_message_text(f"🎮 **O'yin boshlandi!**\n\nIkkala o'yinchi ham tizimga kirdi:\n👤 {game['p1_name']}\n👤 {game['p2_name']}\n\nVariantingizni tanlang:", inline_message_id=inline_id, parse_mode="Markdown", reply_markup=markup)
+    else:
+        bot.send_message(user_id, "❌ Login yoki parol noto'g'ri! Chatdagi tugmani bosib qaytadan urining.")
+
+@bot.callback_query_handler(func=lambda call: call.data in ["itosh", "iqaychi", "iqogoz"])
+def inline_game_logic(call):
+    inline_id = call.inline_message_id
+    user_id = call.from_user.id
+    choice = call.data[1:]
+    if inline_id not in o_yinlar or o_yinlar[inline_id]["status"] != "jarayon": return
+    game = o_yinlar[inline_id]
+    if user_id != game["p1"] and user_id != game["p2"]:
+        bot.answer_callback_query(call.id, "⚠️ Siz bu o'yinda ishtirok etmayapsiz!")
+        return
+    if user_id == game["p1"]:
+        if game["p1_choice"]: return
+        game["p1_choice"] = choice
+    elif user_id == game["p2"]:
+        if game["p2_choice"]: return
+        game["p2_choice"] = choice
+    bot.answer_callback_query(call.id, f"Siz {variantlar[choice]} tanladingiz!")
+    
+    markup = InlineKeyboardMarkup()
+    markup.row(InlineKeyboardButton("✊ Tosh", callback_data="itosh"), InlineKeyboardButton("✌️ Qaychi", callback_data="iqaychi"), InlineKeyboardButton("✋ Qog'oz", callback_data="iqogoz"))
+    
+    if game["p1_choice"] and game["p2_choice"]:
+        game["status"] = "tugadi"
+        p1_c, p2_c = game["p1_choice"], game["p2_choice"]
+        natija = f"🏁 **O'YIN YAKUNLANDI!**\n\n👤 {game['p1_name']}: {variantlar[p1_c]}\n👤 {game['p2_name']}: {variantlar[p2_c]}\n\n"
+        if p1_c == p2_c: natija += "🤝 **Durang!**"
+        elif (p1_c == "tosh" and p2_c == "qaychi") or (p1_c == "qaychi" and p2_c == "qogoz") or (p1_c == "qogoz" and p2_c == "tosh"):
+            natija += f"🏆 **G'olib:** {game['p1_name']} 🎉"
+        else:
+            natija += f"🏆 **G'olib:** {game['p2_name']} 🎉"
+        bot.edit_message_text(natija, inline_message_id=inline_id, parse_mode="Markdown")
+        del o_yinlar[inline_id]
+    else:
+        txt = f"🎮 **O'yin davom etmoqda...**\n\n👤 {game['p1_name']}: {'✅ Tanladi' if game['p1_choice'] else '⏳ Kutilmoqda'}\n👤 {game['p2_name']}: {'✅ Tanladi' if game['p2_choice'] else '⏳ Kutilmoqda'}"
+        bot.edit_message_text(txt, inline_message_id=inline_id, parse_mode="Markdown", reply_markup=markup)
 
 if __name__ == "__main__":
-    print("Login-parolli o'yin boti ishga tushdi...")
+    print("Bot muvaffaqiyatli ishga tushdi...")
     bot.infinity_polling()
